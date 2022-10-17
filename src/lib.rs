@@ -28,71 +28,84 @@ impl<'bmp, T> LinkedList<'bmp, T> {
         })
     }
 
-    pub fn get_last_mut(&mut self) -> &mut LinkedList<'bmp, T> {
-        let mut current = self;
+    pub fn get_last_mut(&mut self) -> Option<&mut LinkedList<'bmp, T>> {
+        let mut current = self.next;
 
-        while let Some(mut next) = current.next {
-            current = unsafe { next.as_mut() };
+        while let Some(next) = current {
+            current = unsafe { next.as_ref() }.next;
         };
 
-        current
+        current.map(|mut ll| unsafe { ll.as_mut() })
     }
 
-    pub fn get_last(&self) -> &LinkedList<'bmp, T> {
-        let mut current = self;
+    pub fn get_last(&self) -> Option<&LinkedList<'bmp, T>> {
+        let mut current = self.next;
 
-        while let Some(next) = current.next {
-            current = unsafe { next.as_ref() };
+        while let Some(next) = current {
+            current = unsafe { next.as_ref() }.next;
         };
 
-        current
+        current.map(|ll| unsafe { ll.as_ref() })
     }
 
-    pub fn get_first_mut(&mut self) -> &mut LinkedList<'bmp, T> {
-        let mut current = self;
+    pub fn get_first_mut(&mut self) -> Option<&mut LinkedList<'bmp, T>> {
+        let mut current = self.before;
 
-        while let Some(mut before) = current.before {
-            current = unsafe { before.as_mut() };
+        while let Some(before) = current {
+            current = unsafe { before.as_ref() }.next;
         };
 
-        current
+        current.map(|mut ll| unsafe { ll.as_mut() })
     }
 
-    pub fn get_first(&self) -> &LinkedList<'bmp, T> {
-        let mut current = self;
+    pub fn get_first(&self) -> Option<&LinkedList<'bmp, T>> {
+        let mut current = self.before;
 
-        while let Some(before) = current.before {
-            current = unsafe { before.as_ref() };
+        while let Some(before) = current {
+            current = unsafe { before.as_ref() }.next;
         };
 
-        current
+        current.map(|ll| unsafe { ll.as_ref() })
     }
 
     pub fn push_to_end(&mut self, value: T) -> &mut LinkedList<'bmp, T> {
-        let mut next = unsafe {
-            NonNull::new_unchecked(Self::new_with_bump(value, self.bump) as *mut LinkedList<'bmp, T>)
-        };
+        let next = Self::new_with_bump(value, self.bump);
 
-        unsafe {
-            next.as_mut().before = Some(NonNull::new_unchecked(self as *mut _));
-        }
-
-        self.get_last_mut().next = Some(next);
-
-        unsafe { next.as_mut() }
+        self.append(next);
+        next
     }
 
     pub fn push_to_front(&mut self, value: T) -> &mut LinkedList<'bmp, T> {
-        let mut before = unsafe {
-            NonNull::new_unchecked(Self::new_with_bump(value, self.bump) as *mut LinkedList<'bmp, T>)
-        };
+        let before = Self::new_with_bump(value, self.bump);
+        self.prepend(before);
+        before
+    }
 
-        self.before = Some(before);
+    pub fn append(&mut self, other: &mut Self) {
         unsafe {
-            before.as_mut().next = Some(NonNull::new_unchecked(self as *mut _));
-        }
+            let next = Some(NonNull::new_unchecked(other as *mut _));
 
-        unsafe { before.as_mut() }
+            if let Some(last) = self.get_last_mut() {
+                last.next = next;
+            } else {
+                self.next = next;
+            };
+
+            other.before = Some(NonNull::new_unchecked(self as *mut _));
+        }
+    }
+
+    pub fn prepend(&mut self, other: &mut Self) {
+        unsafe {
+            let before = Some(NonNull::new_unchecked(other as *mut _));
+
+            if let Some(first) = self.get_last_mut() {
+                first.before = before;
+            } else {
+                self.before = before;
+            };
+            other.next = Some(NonNull::new_unchecked(self as *mut _));
+        }
     }
 
     pub fn iter(&self) -> Iter<'_, 'bmp, T> {
@@ -123,20 +136,13 @@ impl<'bmp, T> LinkedList<'bmp, T> {
         self.iter_mut().nth(n)
     }
 
-    pub fn pop_end(&mut self) -> T {
-        let last = self.get_last_mut();
-
-        unsafe {
-            if let Some(mut before) = last.before {
-                before.as_mut().next = None
-            };
-        };
-
-        last.before = None;
-
-        unsafe {
-            ptr::read(last.value.as_ref())
-        }
+    pub fn pop_end(&mut self) -> Option<T> {
+        self.get_last_mut().map(|last| {
+            unsafe {
+                last.before.unwrap().as_mut().next = None;
+                ptr::read(last.value.as_ref())
+            }
+        })
     }
 }
 
